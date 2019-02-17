@@ -1,8 +1,12 @@
 #!/bin/bash
 
 # -- IMPORTANT
-data=/home/work_nfs/common/data # Modify to your aishell data path
-stage=-1  # Modify to control start from witch stage
+export CUDA_VISIBLE_DEVICES=0,1,2,3,4
+export MASTER_ADDR='127.0.0.1'
+export MASTER_PORT='29500'
+data=/home/baiye/Corpora/aishell # Modify to your aishell data path
+stage=4  # Modify to control start from witch stage
+expdir=exp1
 # --
 
 ngpu=1         # number of gpus ("0" uses cpu, otherwise use gpu)
@@ -37,8 +41,10 @@ label_smoothing=0.1
 epochs=150
 # minibatch
 shuffle=1
-batch_size=16
+batch_size=20
 batch_frames=15000
+batch_frames=0
+
 maxlen_in=800
 maxlen_out=150
 # optimizer
@@ -131,19 +137,22 @@ if [ $stage -le 2 ]; then
 fi
 
 if [ -z ${tag} ]; then
-    expdir=exp/train_m${LFR_m}_n${LFR_n}_in${d_input}_elayer${n_layers_enc}_head${n_head}_k${d_k}_v${d_v}_model${d_model}_inner${d_inner}_drop${dropout}_pe${pe_maxlen}_emb${d_word_vec}_dlayer${n_layers_dec}_share${tgt_emb_prj_weight_sharing}_ls${label_smoothing}_epoch${epochs}_shuffle${shuffle}_bs${batch_size}_bf${batch_frames}_mli${maxlen_in}_mlo${maxlen_out}_k${k}_warm${warmup_steps}
+    expinfo=train_m${LFR_m}_n${LFR_n}_in${d_input}_elayer${n_layers_enc}_head${n_head}_k${d_k}_v${d_v}_model${d_model}_inner${d_inner}_drop${dropout}_pe${pe_maxlen}_emb${d_word_vec}_dlayer${n_layers_dec}_share${tgt_emb_prj_weight_sharing}_ls${label_smoothing}_epoch${epochs}_shuffle${shuffle}_bs${batch_size}_bf${batch_frames}_mli${maxlen_in}_mlo${maxlen_out}_k${k}_warm${warmup_steps}
     if ${do_delta}; then
-        expdir=${expdir}_delta
+        expinfo=${expdir}_delta
     fi
 else
-    expdir=exp/train_${tag}
+    expinfo=train_${tag}
 fi
+
 mkdir -p ${expdir}
+echo $expinfo > $expdir/info
 
 if [ ${stage} -le 3 ]; then
     echo "stage 3: Network Training"
     ${cuda_cmd} --gpu ${ngpu} ${expdir}/train.log \
-        train.py \
+        python $SRC_ROOT/bin/train.py \
+        --multi-gpu True \
         --train-json ${feat_train_dir}/data.json \
         --valid-json ${feat_dev_dir}/data.json \
         --dict ${dict} \
@@ -172,12 +181,12 @@ if [ ${stage} -le 3 ]; then
         --warmup_steps $warmup_steps \
         --save-folder ${expdir} \
         --checkpoint $checkpoint \
-        --continue_from "$continue_from" \
         --print-freq ${print_freq} \
         --visdom $visdom \
         --visdom_lr $visdom_lr \
         --visdom_epoch $visdom_epoch \
         --visdom-id "$visdom_id"
+#        --continue_from "$continue_from"
 fi
 
 if [ ${stage} -le 4 ]; then
@@ -185,7 +194,7 @@ if [ ${stage} -le 4 ]; then
     decode_dir=${expdir}/decode_test_beam${beam_size}_nbest${nbest}_ml${decode_max_len}
     mkdir -p ${decode_dir}
     ${cuda_cmd} --gpu ${ngpu} ${decode_dir}/decode.log \
-        recognize.py \
+        python $SRC_ROOT/bin/recognize.py \
         --recog-json ${feat_test_dir}/data.json \
         --dict $dict \
         --result-label ${decode_dir}/data.json \

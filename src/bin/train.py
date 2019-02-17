@@ -1,7 +1,9 @@
-#!/usr/bin/env python
 import argparse
+import os
+
 
 import torch
+import torch.distributed as dist
 
 from data import AudioDataLoader, AudioDataset
 from decoder import Decoder
@@ -10,6 +12,14 @@ from transformer import Transformer
 from solver import Solver
 from utils import process_dict
 from optimizer import TransformerOptimizer
+
+def str2bool(v):
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Unsupported value encountered.')
 
 parser = argparse.ArgumentParser(
     "End-to-End Automatic Speech Recognition Training "
@@ -20,7 +30,7 @@ parser.add_argument('--train-json', type=str, default=None,
                     help='Filename of train label data (json)')
 parser.add_argument('--valid-json', type=str, default=None,
                     help='Filename of validation label data (json)')
-parser.add_argument('--dict', type=str, required=True,
+parser.add_argument('--dict', type=str, required=False,
                     help='Dictionary which should include <unk> <sos> <eos>')
 # Low Frame Rate (stacking and skipping frames)
 parser.add_argument('--LFR_m', default=4, type=int,
@@ -60,6 +70,8 @@ parser.add_argument('--label_smoothing', default=0.1, type=float,
                     help='label smoothing')
 
 # Training config
+parser.add_argument('--multi-gpu', type=str2bool, default=False,
+                    help='Whether use multi gpus.')
 parser.add_argument('--epochs', default=30, type=int,
                     help='Number of maximum epochs')
 # minibatch
@@ -105,6 +117,11 @@ parser.add_argument('--visdom-id', default='Transformer training',
 def main(args):
     # Construct Solver
     # data
+
+    if args.multi_gpu:
+        n_device = torch.cuda.device_count()
+        args.batch_size = args.batch_size * n_device
+
     tr_dataset = AudioDataset(args.train_json, args.batch_size,
                               args.maxlen_in, args.maxlen_out,
                               batch_frames=args.batch_frames)
@@ -134,13 +151,29 @@ def main(args):
                       pe_maxlen=args.pe_maxlen)
     model = Transformer(encoder, decoder)
     print(model)
+
+    if args.multi_gpu:
+        print("Let's use", torch.cuda.device_count(), "GPUs!")
+
+        model = torch.nn.DataParallel(model)
+
     model.cuda()
+
+
     # optimizer
+    lrscale = 1
+    # if args.multi_gpu:
+    #     lrscale = n_device
+
+    print("args.batch_size", args.batch_size)
+
     optimizier = TransformerOptimizer(
-        torch.optim.Adam(model.parameters(), betas=(0.9, 0.98), eps=1e-09),
+        torch.optim.Adam(model.parameters(), betas=(0.9, 0.98), eps=
+        1e-09),
         args.k,
         args.d_model,
-        args.warmup_steps)
+        args.warmup_steps,
+        lrscale)
 
     # solver
     solver = Solver(data, model, optimizier, args)
@@ -149,5 +182,10 @@ def main(args):
 
 if __name__ == '__main__':
     args = parser.parse_args()
-    print(args)
+    # os.environ["CUDA_VISIBLE_DEVICES"] = '0,1,2,3,4'
+    # root="/home/baiye/Speech/Speech-Transformer-torch-multigpu/egs/aishell"
+    # args.train_json = root+"/dump/dev/deltafalse/data.json"
+    # args.valid_json = root+"/dump/dev/deltafalse/data.json"
+    # args.dict = root+"/data/lang_1char/train_chars.txt"
+    # args.multi_gpu = True
     main(args)

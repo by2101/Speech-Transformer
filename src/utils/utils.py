@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 IGNORE_ID = -1
 
 

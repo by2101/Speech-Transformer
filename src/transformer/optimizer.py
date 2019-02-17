@@ -5,13 +5,14 @@ import torch
 class TransformerOptimizer(object):
     """A simple wrapper class for learning rate scheduling"""
 
-    def __init__(self, optimizer, k, d_model, warmup_steps=4000):
+    def __init__(self, optimizer, k, d_model, warmup_steps=4000, lrscale=1):
         self.optimizer = optimizer
         self.k = k
-        self.init_lr = d_model ** (-0.5)
+        self.init_lr = d_model ** (-0.5) * lrscale
         self.warmup_steps = warmup_steps
         self.step_num = 0
         self.visdom_lr = None
+        self.lr = self.init_lr
 
     def zero_grad(self):
         self.optimizer.zero_grad()
@@ -25,6 +26,7 @@ class TransformerOptimizer(object):
         self.step_num += 1
         lr = self.k * self.init_lr * min(self.step_num ** (-0.5),
                                          self.step_num * (self.warmup_steps ** (-1.5)))
+        self.lr = lr
         for param_group in self.optimizer.param_groups:
             param_group['lr'] = lr
 

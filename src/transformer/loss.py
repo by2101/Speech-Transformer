@@ -19,7 +19,8 @@ def cal_performance(pred, gold, smoothing=0.0):
     pred = pred.max(1)[1]
     non_pad_mask = gold.ne(IGNORE_ID)
     n_correct = pred.eq(gold)
-    n_correct = n_correct.masked_select(non_pad_mask).sum().item()
+    # n_correct = n_correct.masked_select(non_pad_mask).sum().item()
+    n_correct = n_correct.masked_select(non_pad_mask).sum()
 
     return loss, n_correct
 

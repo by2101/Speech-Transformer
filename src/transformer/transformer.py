@@ -4,6 +4,7 @@ import torch.nn as nn
 from decoder import Decoder
 from encoder import Encoder
 
+from loss import cal_performance
 
 class Transformer(nn.Module):
     """An encoder-decoder framework only includes attention.
@@ -18,7 +19,20 @@ class Transformer(nn.Module):
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
 
-    def forward(self, padded_input, input_lengths, padded_target):
+    def forward(self, padded_input, input_lengths, padded_target, label_smoothing=-1):
+        # using label_smoothing to control the return
+        # when training in parallel, it should return loss but not pred
+
+        pred, gold = self.get_logits(padded_input, input_lengths, padded_target)
+
+        if label_smoothing == -1:
+            return pred, gold
+        else:
+            loss, n_correct = cal_performance(pred, gold,
+                                              smoothing=label_smoothing)
+            return loss, n_correct
+
+    def get_logits(self, padded_input, input_lengths, padded_target):
         """
         Args:
             padded_input: N x Ti x D
@@ -26,9 +40,11 @@ class Transformer(nn.Module):
             padded_targets: N x To
         """
         encoder_padded_outputs, *_ = self.encoder(padded_input, input_lengths)
+
         # pred is score before softmax
         pred, gold, *_ = self.decoder(padded_target, encoder_padded_outputs,
                                       input_lengths)
+
         return pred, gold
 
     def recognize(self, input, input_length, char_list, args):

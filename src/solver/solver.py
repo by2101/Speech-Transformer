@@ -3,8 +3,11 @@ import time
 
 import torch
 
+from torch.autograd import Function
+
 from loss import cal_performance
 from utils import IGNORE_ID
+
 
 
 class Solver(object):
@@ -16,6 +19,7 @@ class Solver(object):
         self.cv_loader = data['cv_loader']
         self.model = model
         self.optimizer = optimizer
+        self.device = torch.device("cuda")
 
         # Low frame rate feature
         self.LFR_m = args.LFR_m
@@ -47,6 +51,14 @@ class Solver(object):
             self.vis_window = None
             self.vis_epochs = torch.arange(1, self.epochs + 1)
             self.optimizer.set_visdom(self.visdom_lr, self.vis)
+        self.multi_gpu = args.multi_gpu
+
+        if self.multi_gpu:
+            self.serialize = self.model.module.serialize
+            self.tosave = self.model.module
+        else:
+            self.serialize = self.model.serialize
+            self.tosave = self.model
 
         self._reset()
 
@@ -86,7 +98,7 @@ class Solver(object):
             if self.checkpoint:
                 file_path = os.path.join(
                     self.save_folder, 'epoch%d.pth.tar' % (epoch + 1))
-                torch.save(self.model.serialize(self.model, self.optimizer, epoch + 1,
+                torch.save(self.serialize(self.tosave, self.optimizer, epoch + 1,
                                                 self.LFR_m, self.LFR_n,
                                                 tr_loss=self.tr_loss,
                                                 cv_loss=self.cv_loss),
@@ -109,7 +121,7 @@ class Solver(object):
             if val_loss < self.best_val_loss:
                 self.best_val_loss = val_loss
                 file_path = os.path.join(self.save_folder, self.model_path)
-                torch.save(self.model.serialize(self.model, self.optimizer, epoch + 1,
+                torch.save(self.serialize(self.tosave, self.optimizer, epoch + 1,
                                                 self.LFR_m, self.LFR_n,
                                                 tr_loss=self.tr_loss,
                                                 cv_loss=self.cv_loss),
@@ -142,6 +154,7 @@ class Solver(object):
 
         data_loader = self.tr_loader if not cross_valid else self.cv_loader
 
+
         # visualizing loss using visdom
         if self.visdom_epoch and not cross_valid:
             vis_opts_epoch = dict(title=self.visdom_id + " epoch " + str(epoch),
@@ -152,11 +165,18 @@ class Solver(object):
 
         for i, (data) in enumerate(data_loader):
             padded_input, input_lengths, padded_target = data
-            padded_input = padded_input.cuda()
-            input_lengths = input_lengths.cuda()
-            padded_target = padded_target.cuda()
-            pred, gold = self.model(padded_input, input_lengths, padded_target)
-            loss, n_correct = cal_performance(pred, gold,
+            padded_input = padded_input.to(self.device)
+            input_lengths = input_lengths.to(self.device)
+            padded_target = padded_target.to(self.device)
+
+            if self.multi_gpu:
+                loss, n_correct = self.model(padded_input,
+                            input_lengths, padded_target, self.label_smoothing)
+                loss = torch.mean(loss)
+                n_correct = torch.sum(n_correct)
+            else:
+                pred, gold = self.model(padded_input, input_lengths, padded_target)
+                loss, n_correct = cal_performance(pred, gold,
                                               smoothing=self.label_smoothing)
             if not cross_valid:
                 self.optimizer.zero_grad()
@@ -164,14 +184,16 @@ class Solver(object):
                 self.optimizer.step()
 
             total_loss += loss.item()
-            non_pad_mask = gold.ne(IGNORE_ID)
-            n_word = non_pad_mask.sum().item()
+            # non_pad_mask = gold.ne(IGNORE_ID)
+            # n_word = non_pad_mask.sum().item()
 
             if i % self.print_freq == 0:
                 print('Epoch {0} | Iter {1} | Average Loss {2:.3f} | '
-                      'Current Loss {3:.6f} | {4:.1f} ms/batch'.format(
-                          epoch + 1, i + 1, total_loss / (i + 1),
-                          loss.item(), 1000 * (time.time() - start) / (i + 1)),
+                      'Current Loss {3:.6f} | {4:.1f} ms/batch | lr {5:.7f}'.format(
+                        epoch + 1, i + 1, total_loss / (i + 1),
+                        loss.item(),
+                        1000 * (time.time() - start) / (i + 1),
+                        self.optimizer.lr),
                       flush=True)
 
             # visualizing loss using visdom

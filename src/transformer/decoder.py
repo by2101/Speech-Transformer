@@ -8,6 +8,7 @@ from utils import (IGNORE_ID, get_attn_key_pad_mask, get_attn_pad_mask,
                    get_non_pad_mask, get_subsequent_mask, pad_list)
 
 
+
 class Decoder(nn.Module):
     ''' A decoder model with self attention mechanism. '''
 
@@ -70,7 +71,7 @@ class Decoder(nn.Module):
         return ys_in_pad, ys_out_pad
 
     def forward(self, padded_input, encoder_padded_outputs,
-                encoder_input_lengths, return_attns=False):
+                encoder_input_lengths, return_attns=False, multi_gpu=False):
         """
         Args:
             padded_input: N x To
@@ -121,6 +122,9 @@ class Decoder(nn.Module):
         if return_attns:
             return pred, gold, dec_slf_attn_list, dec_enc_attn_list
         return pred, gold
+
+
+
 
 
     def recognize_beam(self, encoder_outputs, char_list, args):

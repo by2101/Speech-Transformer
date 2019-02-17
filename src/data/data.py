@@ -196,3 +196,6 @@ def build_LFR_features(inputs, m, n):
     return np.vstack(LFR_inputs)
     #     LFR_inputs_batch.append(np.vstack(LFR_inputs))
     # return LFR_inputs_batch
+
+if __name__ == '__main__':
+    pass
